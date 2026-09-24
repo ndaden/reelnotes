@@ -2,6 +2,14 @@
 
 **ReelNotes** est une application Android moderne développée en **Kotlin** et **Jetpack Compose (Material 3)**. Elle permet de capturer n'importe quel Reel Instagram partagé depuis l'application officielle, d'en extraire le contenu et de le synthétiser automatiquement sous forme de fiches pratiques (recettes de cuisine avec liste d'ingrédients à cocher, routines sportives, tutoriels, astuces, etc.) sauvegardées localement.
 
+<p align="center">
+  <img src="docs/screenshots/home_screen.png" width="30%" alt="Accueil ReelNotes" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/recipe_detail.png" width="30%" alt="Fiche Recette" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/recipe_checked.png" width="30%" alt="Checklist Recette" />
+</p>
+
 ---
 
 ## 🌟 Fonctionnalités Principales
