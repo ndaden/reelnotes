@@ -73,4 +73,19 @@ class UrlParserTest {
         val caption = UrlParser.extractCaptionFromSharedText(input)
         assertEquals("Super fast 15min garlic parmesan noodles!", caption)
     }
+
+    @Test
+    fun `extractAuthorFromSharedText extracts author username from shared intent text`() {
+        val frInput = "Regardez cette vidéo de @linstant_tesla sur Instagram : https://www.instagram.com/reel/DdoSXV8KeM2/?igsh=123"
+        assertEquals("@linstant_tesla", UrlParser.extractAuthorFromSharedText(frInput))
+
+        val enInput = "Watch this reel by @ikrcook on Instagram https://www.instagram.com/reel/C76zFvaovP3/"
+        assertEquals("@ikrcook", UrlParser.extractAuthorFromSharedText(enInput))
+
+        val bareInput = "Check @chef_john's latest tips https://instagram.com/reel/123"
+        assertEquals("@chef_john", UrlParser.extractAuthorFromSharedText(bareInput))
+
+        val noAuthorInput = "https://www.instagram.com/reel/DdoSXV8KeM2/"
+        assertNull(UrlParser.extractAuthorFromSharedText(noAuthorInput))
+    }
 }

@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
+import com.danstudios.reelnotes.domain.util.CaptionSanitizer
 
 data class WebViewExtractionResult(
     val caption: String = "",
@@ -117,9 +118,9 @@ object InstagramWebViewExtractor {
 
                         val checkExtraction: () -> Unit = {
                             if (!resultDeferred.isCompleted) {
-                                evaluateExtractionJs(view) { res ->
-                                    val effectiveVideo = res.videoUrl ?: detectedVideoUrl
-                                    val effectiveAudio = res.audioUrl ?: detectedAudioUrl
+                                evaluateExtractionJs(view, shortcode) { res ->
+                                    val effectiveVideo = detectedVideoUrl ?: res.videoUrl
+                                    val effectiveAudio = detectedAudioUrl ?: res.audioUrl
                                     val finalRes = res.copy(
                                         videoUrl = effectiveVideo,
                                         audioUrl = effectiveAudio
@@ -165,10 +166,10 @@ object InstagramWebViewExtractor {
             // Fallback one last check at timeout
             Log.d(TAG, "Timeout reached, running final fallback extraction")
             val fallbackDeferred = CompletableDeferred<WebViewExtractionResult>()
-            evaluateExtractionJs(webView) { res ->
+            evaluateExtractionJs(webView, shortcode) { res ->
                 val finalRes = res.copy(
-                    videoUrl = res.videoUrl ?: detectedVideoUrl,
-                    audioUrl = res.audioUrl ?: detectedAudioUrl
+                    videoUrl = detectedVideoUrl ?: res.videoUrl,
+                    audioUrl = detectedAudioUrl ?: res.audioUrl
                 )
                 fallbackDeferred.complete(finalRes)
             }
@@ -193,7 +194,11 @@ object InstagramWebViewExtractor {
         return url.replace(Regex("""&bytestart=\d+&byteend=\d+"""), "")
     }
 
-    private fun evaluateExtractionJs(webView: WebView?, onResult: (WebViewExtractionResult) -> Unit) {
+    private fun evaluateExtractionJs(
+        webView: WebView?,
+        shortcode: String,
+        onResult: (WebViewExtractionResult) -> Unit
+    ) {
         if (webView == null) {
             onResult(WebViewExtractionResult())
             return
@@ -202,6 +207,8 @@ object InstagramWebViewExtractor {
         val js = """
             (function() {
                 try {
+                    var targetShortcode = "$shortcode";
+
                     // 0. Force document visibility & simulate active playback environment
                     try {
                         Object.defineProperty(document, 'hidden', { get: function() { return false; } });
@@ -235,16 +242,81 @@ object InstagramWebViewExtractor {
                                            bodyText.indexOf('Log in to continue') !== -1) && 
                                           !document.querySelector('video');
 
-                    // 1. Author
-                    var author = '';
-                    var authorMatch = bodyText.match(/Ne manquez aucune publication de\s+([A-Za-z0-9_.]+)/i) ||
-                                      bodyText.match(/See more posts from\s+([A-Za-z0-9_.]+)/i) ||
-                                      bodyText.match(/([A-Za-z0-9_.]+)\s*•\s*(?:Suivre|Follow)/i);
-                    if (authorMatch && authorMatch[1]) {
-                        author = '@' + authorMatch[1].replace('@', '');
+                    // Find container specifically associated with target shortcode
+                    var targetContainer = null;
+                    if (targetShortcode) {
+                        var links = document.querySelectorAll('a[href*="' + targetShortcode + '"]');
+                        for (var l = 0; l < links.length; l++) {
+                            var container = links[l].closest('article, section, div[role="dialog"]');
+                            if (container) {
+                                targetContainer = container;
+                                break;
+                            }
+                        }
                     }
-                    if (!author) {
-                        var authorLinks = Array.from(document.querySelectorAll('header a, h2 a, a[role="link"]'));
+                    if (!targetContainer) {
+                        targetContainer = document.querySelector('article') || document.querySelector('section');
+                    }
+
+                    var author = '';
+                    var caption = '';
+                    var jsAudioUrl = null;
+                    var jsVideoUrl = null;
+
+                    // 1. Script tag extraction strictly scoped to targetShortcode
+                    if (targetShortcode) {
+                        try {
+                            var scripts = document.querySelectorAll('script');
+                            for (var s = 0; s < scripts.length; s++) {
+                                var scText = scripts[s].textContent || '';
+                                var scIdx = scText.indexOf(targetShortcode);
+                                if (scIdx !== -1) {
+                                    var startIdx = Math.max(0, scIdx - 2000);
+                                    var endIdx = Math.min(scText.length, scIdx + 8000);
+                                    var snippet = scText.substring(startIdx, endIdx);
+
+                                    // Video stream in target snippet
+                                    var vm = snippet.match(/"video_url"\s*:\s*"([^"]+)"/) ||
+                                             snippet.match(/"playable_url"\s*:\s*"([^"]+)"/) ||
+                                             snippet.match(/"playable_url_quality_hd"\s*:\s*"([^"]+)"/);
+                                    if (vm && vm[1]) {
+                                        var vcand = vm[1].replace(/\\u0026/g, '&').replace(/\\\//g, '/');
+                                        if (vcand.indexOf('http') === 0 && !jsVideoUrl) {
+                                            jsVideoUrl = vcand;
+                                        }
+                                    }
+
+                                    // Author in target snippet
+                                    if (!author) {
+                                        var om = snippet.match(/"owner"\s*:\s*\{[^}]*"username"\s*:\s*"([^"]+)"/) ||
+                                                 snippet.match(/"user"\s*:\s*\{[^}]*"username"\s*:\s*"([^"]+)"/);
+                                        if (om && om[1]) {
+                                            author = '@' + om[1];
+                                        }
+                                    }
+
+                                    // Caption in target snippet
+                                    if (!caption) {
+                                        var cm = snippet.match(/"edge_media_to_caption"\s*:\s*\{\s*"edges"\s*:\s*\[\s*\{\s*"node"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"/);
+                                        if (!cm) {
+                                            cm = snippet.match(/"caption"\s*:\s*\{\s*[^}]*"text"\s*:\s*"([^"]+)"/);
+                                        }
+                                        if (cm && cm[1]) {
+                                            try {
+                                                caption = JSON.parse('"' + cm[1] + '"');
+                                            } catch(_) {
+                                                caption = cm[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch(_) {}
+                    }
+
+                    // 2. Author from scoped container or DOM
+                    if (!author && targetContainer) {
+                        var authorLinks = Array.from(targetContainer.querySelectorAll('header a, h2 a, a[role="link"]'));
                         for (var i = 0; i < authorLinks.length; i++) {
                             var a = authorLinks[i];
                             var h = a.getAttribute('href') || '';
@@ -255,51 +327,39 @@ object InstagramWebViewExtractor {
                             }
                         }
                     }
-
-                    // 2. Caption
-                    var caption = '';
-                    if (author) {
-                        var rawAuthor = author.replace('@', '');
-                        var authorIdx = bodyText.indexOf(rawAuthor);
-                        if (authorIdx !== -1) {
-                            var afterAuthor = bodyText.substring(authorIdx + rawAuthor.length);
-                            var dateMatch = afterAuthor.match(/^\s*(?:•\s*)?(?:Suivre\s*)?(?:[^\n]+\s*)?\n(?:[0-9]+\s*(?:sem|j|h|min|s|w|d|m)|[0-9]+ [a-zéû]+)\s*\n/i);
-                            if (dateMatch) {
-                                var rest = afterAuthor.substring(dateMatch[0].length);
-                                var endIdx = rest.search(/\n(?:J’aime|Like|Connectez-vous|Log in|[A-Za-z0-9_.]+\s*\n\s*[0-9]+)/);
-                                if (endIdx !== -1) {
-                                    caption = rest.substring(0, endIdx).trim();
-                                } else {
-                                    caption = rest.substring(0, 500).trim();
-                                }
-                            }
+                    if (!author) {
+                        var authorMatch = bodyText.match(/(?:^|\n)\s*([A-Za-z0-9_.]+)\s*(?:•|\n)\s*(?:Suivre|Follow)/i) ||
+                                          bodyText.match(/Ne manquez aucune publication de\s+([A-Za-z0-9_.]+)/i) ||
+                                          bodyText.match(/See more posts from\s+([A-Za-z0-9_.]+)/i);
+                        if (authorMatch && authorMatch[1]) {
+                            author = '@' + authorMatch[1].replace('@', '');
                         }
                     }
 
+                    // 3. Caption strictly scoped to the FIRST reel in the feed
                     if (!caption) {
-                        var candidates = Array.from(document.querySelectorAll('h1, span, p, div'));
-                        var longest = '';
-                        for (var j = 0; j < candidates.length; j++) {
-                            var el = candidates[j];
-                            var txt = el.innerText ? el.innerText.trim() : '';
-                            if (txt.indexOf('#') !== -1 && txt.length > 20 &&
-                                txt.indexOf('Inscrivez-vous') === -1 &&
-                                txt.indexOf('Instagram') === -1 &&
-                                txt.indexOf('Connectez-vous') === -1) {
-                                if (txt.length > longest.length) {
-                                    longest = txt;
-                                }
+                        var followMatch = bodyText.match(/(?:^|\n)\s*(?:Suivre|Follow|Following|Abonné\(e\)|S’abonner)\s*\n/i);
+                        if (followMatch && followMatch.index !== undefined) {
+                            var textAfterFollow = bodyText.substring(followMatch.index + followMatch[0].length);
+                            var moreIdx = textAfterFollow.search(/(?:\n|^)\s*(?:…\s*more|…\s*plus|\.\.\.\s*more|\.\.\.\s*plus)\b/i);
+                            var countsIdx = textAfterFollow.search(/\n\s*[0-9.,]+[KkMmb]?\s*\n\s*[0-9.,]+[KkMmb]?\s*\n/);
+                            var nextAuthorIdx = textAfterFollow.search(/(?:\n|^)\s*[A-Za-z0-9_.]+\s*(?:\n|\s*•\s*)(?:Suivre|Follow)/i);
+                            var likeBtnIdx = textAfterFollow.search(/\n\s*(?:J’aime|Like|Comments?|Commentaires?)\b/i);
+
+                            var cutList = [moreIdx, countsIdx, nextAuthorIdx, likeBtnIdx].filter(function(idx) { return idx !== -1; });
+                            var cutAt = cutList.length > 0 ? Math.min.apply(null, cutList) : 500;
+                            var cand = textAfterFollow.substring(0, cutAt).trim();
+                            if (cand.length > 0) {
+                                caption = cand;
                             }
                         }
-                        caption = longest;
                     }
 
-                    // 3. Performance resource entries for streams
-                    var jsAudioUrl = null;
-                    var jsVideoUrl = null;
+                    // 4. Media stream extraction from window.performance (CHRONOLOGICAL FORWARD SEARCH)
+                    // The earliest media entries belong to the target reel loaded first.
                     try {
                         var entries = window.performance.getEntriesByType('resource');
-                        for (var k = entries.length - 1; k >= 0; k--) {
+                        for (var k = 0; k < entries.length; k++) {
                             var u = entries[k].name;
                             var isMedia = u.indexOf('.mp4') !== -1 ||
                                           u.indexOf('dash_') !== -1 ||
@@ -315,47 +375,31 @@ object InstagramWebViewExtractor {
                                 } else {
                                     if (!jsVideoUrl) jsVideoUrl = u;
                                 }
+                                if (jsAudioUrl && jsVideoUrl) break;
                             }
                         }
                     } catch(_) {}
 
-                    // 4. Video element direct src or currentSrc or child source tag
-                    var videoEl = document.querySelector('video');
-                    if (videoEl) {
-                        var src = videoEl.currentSrc || videoEl.src;
-                        if (!src) {
-                            var sourceEl = videoEl.querySelector('source');
-                            if (sourceEl) src = sourceEl.src;
-                        }
-                        if (src && src.indexOf('blob:') === -1 && !jsVideoUrl) {
-                            jsVideoUrl = src;
-                        }
-                    }
-
-                    // 5. Look for video_url or playable_url inside embedded script tags
+                    // 5. Video element direct src fallback
                     if (!jsVideoUrl) {
-                        try {
-                            var scripts = document.querySelectorAll('script');
-                            for (var s = 0; s < scripts.length; s++) {
-                                var scText = scripts[s].textContent || '';
-                                var match = scText.match(/"video_url"\s*:\s*"([^"]+)"/) ||
-                                            scText.match(/"playable_url"\s*:\s*"([^"]+)"/) ||
-                                            scText.match(/"playable_url_quality_hd"\s*:\s*"([^"]+)"/);
-                                if (match && match[1]) {
-                                    var cand = match[1].replace(/\\u0026/g, '&').replace(/\\\//g, '/');
-                                    if (cand.indexOf('http') === 0) {
-                                        jsVideoUrl = cand;
-                                        break;
-                                    }
-                                }
+                        var vEl = targetContainer ? targetContainer.querySelector('video') : document.querySelector('video');
+                        if (vEl) {
+                            var vSrc = vEl.currentSrc || vEl.src;
+                            if (!vSrc) {
+                                var sEl = vEl.querySelector('source');
+                                if (sEl) vSrc = sEl.src;
                             }
-                        } catch(_) {}
+                            if (vSrc && vSrc.indexOf('blob:') === -1) {
+                                jsVideoUrl = vSrc;
+                            }
+                        }
                     }
 
                     // 6. Thumbnail
+                    var videoElForThumb = targetContainer ? targetContainer.querySelector('video') : document.querySelector('video');
                     var ogImg = document.querySelector('meta[property="og:image"]');
                     var ogImgSrc = ogImg ? ogImg.getAttribute('content') : '';
-                    var posterSrc = videoEl ? videoEl.getAttribute('poster') : '';
+                    var posterSrc = videoElForThumb ? videoElForThumb.getAttribute('poster') : '';
                     var thumb = posterSrc || ogImgSrc || '';
 
                     return JSON.stringify({
@@ -363,6 +407,7 @@ object InstagramWebViewExtractor {
                         isLoginRequired: isLoginRequired,
                         author: author,
                         caption: caption,
+                        bodyText: bodyText,
                         thumbnailUrl: thumb,
                         title: document.title || '',
                         audioUrl: jsAudioUrl ? jsAudioUrl.replace(/&bytestart=\d+&byteend=\d+/, '') : null,
@@ -393,9 +438,19 @@ object InstagramWebViewExtractor {
                     return if (s.isBlank() || s.equals("null", ignoreCase = true) || s.equals("undefined", ignoreCase = true)) null else s
                 }
 
+                val author = optNullableString("author")
+                val rawCaption = obj.optString("caption", "")
+                val bodyText = obj.optString("bodyText", "")
+
+                val cleanCaption = when {
+                    rawCaption.isNotBlank() -> CaptionSanitizer.sanitize(rawCaption, author)
+                    bodyText.isNotBlank() -> CaptionSanitizer.extractFirstReelCaptionFromFeedText(bodyText)
+                    else -> ""
+                }
+
                 val result = WebViewExtractionResult(
-                    caption = obj.optString("caption", ""),
-                    author = optNullableString("author"),
+                    caption = cleanCaption,
+                    author = author,
                     title = optNullableString("title"),
                     thumbnailUrl = optNullableString("thumbnailUrl"),
                     videoUrl = optNullableString("videoUrl"),

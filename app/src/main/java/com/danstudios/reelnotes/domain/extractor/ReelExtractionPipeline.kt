@@ -7,6 +7,7 @@ import com.danstudios.reelnotes.data.network.InstagramMetadataFetcher
 import com.danstudios.reelnotes.domain.model.NoteCategory
 import com.danstudios.reelnotes.domain.model.ReelNote
 import com.danstudios.reelnotes.domain.model.StructuredNoteData
+import com.danstudios.reelnotes.domain.util.CaptionSanitizer
 import com.danstudios.reelnotes.domain.util.UrlParser
 
 object ReelExtractionPipeline {
@@ -30,13 +31,17 @@ object ReelExtractionPipeline {
         onProgressUpdate?.invoke("Chargement du Reel Instagram...")
         val fetchedMeta = InstagramMetadataFetcher.fetch(shortcode, cleanUrl, context)
 
-        // 2. Check if blocked by age restriction or login wall
+        // 2. Author resolution (fetched metadata takes precedence, then shared text)
+        val author = fetchedMeta.author ?: UrlParser.extractAuthorFromSharedText(sharedInput)
+
+        // 3. Caption sanitization (guarantees no subsequent feed reels leak into prompt)
         val effectiveManualCaption = manualCaption?.trim().orEmpty()
+        val sanitizedFetchedCaption = CaptionSanitizer.sanitize(fetchedMeta.caption, author)
         val combinedCaption = when {
             effectiveManualCaption.isNotBlank() -> effectiveManualCaption
-            fetchedMeta.caption.length > initialCaption.length -> fetchedMeta.caption
-            initialCaption.isNotBlank() -> initialCaption
-            else -> fetchedMeta.caption
+            sanitizedFetchedCaption.isNotBlank() -> sanitizedFetchedCaption
+            initialCaption.isNotBlank() -> CaptionSanitizer.sanitize(initialCaption, author)
+            else -> ""
         }
 
         if ((fetchedMeta.isAgeRestricted || fetchedMeta.isLoginRequired) &&
@@ -48,7 +53,6 @@ object ReelExtractionPipeline {
             )
         }
 
-        val author = fetchedMeta.author
         val thumb = fetchedMeta.thumbnailUrl
 
         var aiResult: GeminiAiOutput? = null

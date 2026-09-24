@@ -24,4 +24,14 @@ object UrlParser {
         val textWithoutUrl = input.replace(Regex("""https?://\S+"""), "").trim()
         return textWithoutUrl
     }
+
+    fun extractAuthorFromSharedText(input: String): String? {
+        val authorRegex = Regex("""(?:(?:vidéo|publication|post|reel)\s+de\s+|by\s+)@([A-Za-z0-9_.]+)""", RegexOption.IGNORE_CASE)
+        val match = authorRegex.find(input)
+        if (match != null) {
+            return "@${match.groupValues[1]}"
+        }
+        val fallbackRegex = Regex("""@([A-Za-z0-9_.]+)""")
+        return fallbackRegex.find(input)?.groupValues?.get(1)?.let { "@$it" }
+    }
 }
