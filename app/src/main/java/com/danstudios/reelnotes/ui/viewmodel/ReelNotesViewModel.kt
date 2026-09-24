@@ -1,11 +1,15 @@
 package com.danstudios.reelnotes.ui.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.danstudios.reelnotes.data.local.PreferencesManager
+import com.danstudios.reelnotes.data.network.GeminiSummarizer
+import com.danstudios.reelnotes.data.network.InstagramSessionManager
 import com.danstudios.reelnotes.data.repository.ReelNoteRepository
 import com.danstudios.reelnotes.data.util.SampleDataProvider
+import com.danstudios.reelnotes.domain.extractor.InstagramRestrictedException
 import com.danstudios.reelnotes.domain.extractor.ReelExtractionPipeline
 import com.danstudios.reelnotes.domain.model.NoteCategory
 import com.danstudios.reelnotes.domain.model.ReelNote
@@ -40,6 +44,9 @@ class ReelNotesViewModel(
 
     private val _preferredLanguage = MutableStateFlow(preferences.preferredLanguage)
     val preferredLanguage: StateFlow<String> = _preferredLanguage.asStateFlow()
+
+    private val _isInstagramLoggedIn = MutableStateFlow(InstagramSessionManager.isLoggedIn())
+    val isInstagramLoggedIn: StateFlow<Boolean> = _isInstagramLoggedIn.asStateFlow()
 
     private val _newlyCreatedNoteId = MutableSharedFlow<Long>()
     val newlyCreatedNoteId: SharedFlow<Long> = _newlyCreatedNoteId.asSharedFlow()
@@ -97,6 +104,23 @@ class ReelNotesViewModel(
         _preferredLanguage.value = lang
     }
 
+    fun refreshInstagramLoginState() {
+        _isInstagramLoggedIn.value = InstagramSessionManager.isLoggedIn()
+    }
+
+    fun logoutInstagram() {
+        InstagramSessionManager.logout {
+            _isInstagramLoggedIn.value = false
+        }
+    }
+
+    fun testGeminiKey(key: String, onComplete: (Result<String>) -> Unit) {
+        viewModelScope.launch {
+            val result = GeminiSummarizer.testApiKey(key)
+            onComplete(result)
+        }
+    }
+
     fun toggleFavorite(note: ReelNote) {
         viewModelScope.launch {
             repository.toggleFavorite(note.id, !note.isFavorite)
@@ -132,24 +156,35 @@ class ReelNotesViewModel(
         }
     }
 
-    fun processSharedUrl(sharedText: String, onFinished: ((Long) -> Unit)? = null) {
+    fun processSharedUrl(
+        sharedText: String,
+        manualCaption: String? = null,
+        context: Context? = null,
+        onFinished: ((Long) -> Unit)? = null
+    ) {
         if (sharedText.isBlank()) return
 
         viewModelScope.launch {
             _isProcessing.value = true
             _processingStatus.value = "Récupération du Reel Instagram..."
             try {
-                _processingStatus.value = "Analyse et structuration des notes..."
                 val note = ReelExtractionPipeline.processReel(
                     sharedInput = sharedText,
                     apiKey = preferences.geminiApiKey.ifBlank { null },
-                    preferredLanguage = preferences.preferredLanguage
+                    preferredLanguage = preferences.preferredLanguage,
+                    manualCaption = manualCaption,
+                    context = context,
+                    onProgressUpdate = { status ->
+                        _processingStatus.value = status
+                    }
                 )
 
                 _processingStatus.value = "Enregistrement dans vos notes..."
                 val savedId = repository.saveNote(note)
                 _newlyCreatedNoteId.emit(savedId)
                 onFinished?.invoke(savedId)
+            } catch (e: InstagramRestrictedException) {
+                _errorMessage.value = e.message
             } catch (e: Exception) {
                 _errorMessage.value = e.message ?: "Erreur lors du traitement du Reel"
             } finally {

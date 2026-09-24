@@ -4,9 +4,9 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class IngredientItem(
-    val name: String,
-    val amount: String = "",
-    val unit: String = "",
+    val name: String = "",
+    val amount: String? = "",
+    val unit: String? = "",
     var isChecked: Boolean = false
 )
 

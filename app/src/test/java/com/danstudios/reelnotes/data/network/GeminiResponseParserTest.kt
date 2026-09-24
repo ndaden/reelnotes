@@ -1,6 +1,7 @@
 package com.danstudios.reelnotes.data.network
 
 import com.danstudios.reelnotes.domain.model.NoteCategory
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -76,5 +77,59 @@ class GeminiResponseParserTest {
         assertNotNull(parsed)
         assertEquals(NoteCategory.TIPS_INFO, parsed?.categoryEnum)
         assertEquals(2, parsed?.keyTakeaways?.size)
+    }
+
+    @Test
+    fun `parseGeminiJsonOutput handles conversational prefix and suffix text`() {
+        val conversationalOutput = """
+            Voici les notes extraites du Reel Instagram :
+
+            ```json
+            {
+                "category": "WORKOUT",
+                "title": "Séance Abdo Express 10 Min",
+                "summary": "Circuit d'entraînement abdominal à haute intensité sans matériel.",
+                "ingredients": [],
+                "steps": [
+                    {"stepNumber": 1, "instruction": "Gainage planche 45 secondes"},
+                    {"stepNumber": 2, "instruction": "Crunchs bicyclette 30 répétitions"}
+                ],
+                "keyTakeaways": ["Pas de temps de repos entre les exercices"],
+                "tags": ["fitness", "abdos"]
+            }
+            ```
+
+            N'hésitez pas si vous avez besoin d'autres résumés !
+        """.trimIndent()
+
+        val parsed = GeminiSummarizer.parseAiJson(conversationalOutput)
+        assertNotNull(parsed)
+        assertEquals(NoteCategory.WORKOUT, parsed?.categoryEnum)
+        assertEquals("Séance Abdo Express 10 Min", parsed?.title)
+        assertEquals(2, parsed?.steps?.size)
+    }
+
+    @Test
+    fun `parseGeminiJsonOutput extracts JSON even without code block markers`() {
+        val textWithRawJson = """
+            Certainement, voici le résultat :
+            {
+                "category": "TUTORIAL",
+                "title": "Nettoyer ses baskets blanches",
+                "summary": "Méthode efficace au bicarbonate de soude et dentifrice.",
+                "ingredients": [],
+                "steps": [
+                    {"stepNumber": 1, "instruction": "Frotter avec une vieille brosse à dents"}
+                ],
+                "keyTakeaways": ["Laisser sécher à l'air libre"],
+                "tags": ["astuce", "mode"]
+            }
+            Espérant que cela vous aide.
+        """.trimIndent()
+
+        val parsed = GeminiSummarizer.parseAiJson(textWithRawJson)
+        assertNotNull(parsed)
+        assertEquals(NoteCategory.TUTORIAL, parsed?.categoryEnum)
+        assertEquals("Nettoyer ses baskets blanches", parsed?.title)
     }
 }

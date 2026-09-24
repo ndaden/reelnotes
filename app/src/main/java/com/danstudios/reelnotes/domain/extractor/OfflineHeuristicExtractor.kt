@@ -327,7 +327,7 @@ object OfflineHeuristicExtractor {
         if (data.ingredients.isNotEmpty()) {
             sb.append("## Ingrédients\n")
             for (ing in data.ingredients) {
-                val qty = listOf(ing.amount, ing.unit).filter { it.isNotBlank() }.joinToString(" ")
+                val qty = listOfNotNull(ing.amount, ing.unit).filter { it.isNotBlank() }.joinToString(" ")
                 if (qty.isNotBlank()) {
                     sb.append("- [ ] **$qty** ${ing.name}\n")
                 } else {

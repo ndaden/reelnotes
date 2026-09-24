@@ -70,7 +70,7 @@ fun RecipeChecklist(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    val quantity = listOf(item.amount, item.unit).filter { it.isNotBlank() }.joinToString(" ")
+                    val quantity = listOfNotNull(item.amount, item.unit).filter { it.isNotBlank() }.joinToString(" ")
                     if (quantity.isNotBlank()) {
                         Surface(
                             shape = RoundedCornerShape(6.dp),

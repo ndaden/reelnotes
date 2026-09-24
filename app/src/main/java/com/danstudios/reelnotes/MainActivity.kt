@@ -106,7 +106,10 @@ class MainActivity : ComponentActivity() {
                 ?: intent.getStringExtra(Intent.EXTRA_SUBJECT)
 
             if (!sharedText.isNullOrBlank()) {
-                viewModel.processSharedUrl(sharedText)
+                viewModel.processSharedUrl(
+                    sharedText = sharedText,
+                    context = this
+                )
             }
         }
     }

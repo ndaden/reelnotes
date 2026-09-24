@@ -49,8 +49,19 @@ fun NotesListScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(errorMessage) {
-        errorMessage?.let {
-            snackbarHostState.showSnackbar(message = it, duration = SnackbarDuration.Long)
+        errorMessage?.let { msg ->
+            if (msg.contains("Paramètres")) {
+                val res = snackbarHostState.showSnackbar(
+                    message = msg,
+                    actionLabel = "Paramètres",
+                    duration = SnackbarDuration.Long
+                )
+                if (res == SnackbarResult.ActionPerformed) {
+                    onSettingsClick()
+                }
+            } else {
+                snackbarHostState.showSnackbar(message = msg, duration = SnackbarDuration.Long)
+            }
             viewModel.clearError()
         }
     }
@@ -206,9 +217,13 @@ fun NotesListScreen(
     if (showAddDialog) {
         AddReelDialog(
             onDismiss = { showAddDialog = false },
-            onSubmit = { input ->
+            onSubmit = { url, caption ->
                 showAddDialog = false
-                viewModel.processSharedUrl(input)
+                viewModel.processSharedUrl(
+                    sharedText = url,
+                    manualCaption = caption,
+                    context = context
+                )
             }
         )
     }

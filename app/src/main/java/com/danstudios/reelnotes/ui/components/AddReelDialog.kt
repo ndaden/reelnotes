@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,9 +16,10 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun AddReelDialog(
     onDismiss: () -> Unit,
-    onSubmit: (String) -> Unit
+    onSubmit: (url: String, manualCaption: String?) -> Unit
 ) {
-    var textInput by remember { mutableStateOf("") }
+    var urlInput by remember { mutableStateOf("") }
+    var captionInput by remember { mutableStateOf("") }
     val clipboardManager = LocalClipboardManager.current
 
     AlertDialog(
@@ -36,32 +38,60 @@ fun AddReelDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Collez le lien d'un Reel Instagram ou le texte partagé pour générer automatiquement vos notes.",
+                    text = "Collez le lien d'un Reel Instagram. L'IA écoutera et lira la vidéo pour créer vos notes.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 OutlinedTextField(
-                    value = textInput,
-                    onValueChange = { textInput = it },
-                    label = { Text("Lien ou texte partagé") },
+                    value = urlInput,
+                    onValueChange = { urlInput = it },
+                    label = { Text("Lien du Reel Instagram") },
                     placeholder = { Text("https://www.instagram.com/reel/...") },
-                    singleLine = false,
-                    maxLines = 4,
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     trailingIcon = {
                         IconButton(onClick = {
                             val clipText = clipboardManager.getText()?.text
                             if (!clipText.isNullOrBlank()) {
-                                textInput = clipText
+                                urlInput = clipText
                             }
                         }) {
                             Icon(
                                 imageVector = Icons.Default.ContentPaste,
-                                contentDescription = "Coller depuis le presse-papier"
+                                contentDescription = "Coller lien"
+                            )
+                        }
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = captionInput,
+                    onValueChange = { captionInput = it },
+                    label = { Text("Légende ou recette (facultatif)") },
+                    placeholder = { Text("Utile si le compte est privé ou restreint...") },
+                    singleLine = false,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    leadingIcon = {
+                        Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            val clipText = clipboardManager.getText()?.text
+                            if (!clipText.isNullOrBlank() && clipText != urlInput) {
+                                captionInput = clipText
+                            }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.ContentPaste,
+                                contentDescription = "Coller texte"
                             )
                         }
                     }
@@ -71,11 +101,14 @@ fun AddReelDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (textInput.isNotBlank()) {
-                        onSubmit(textInput.trim())
+                    if (urlInput.isNotBlank()) {
+                        onSubmit(
+                            urlInput.trim(),
+                            captionInput.trim().ifBlank { null }
+                        )
                     }
                 },
-                enabled = textInput.isNotBlank()
+                enabled = urlInput.isNotBlank()
             ) {
                 Text("Transformer en notes")
             }
