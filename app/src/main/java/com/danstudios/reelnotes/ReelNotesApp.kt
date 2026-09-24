@@ -26,6 +26,10 @@ class ReelNotesApp : Application() {
         repository = ReelNoteRepository(database.reelNoteDao())
         preferences = PreferencesManager(this)
 
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+            android.webkit.WebView.setWebContentsDebuggingEnabled(true)
+        }
+
         if (preferences.isFirstRun) {
             preferences.isFirstRun = false
             CoroutineScope(Dispatchers.IO).launch {
