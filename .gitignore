@@ -1,12 +1,28 @@
+# Android build and cache
 *.iml
-.gradle
-/local.properties
-/.idea/
-.DS_Store
-/build
-/app/build
-/captures
-.externalNativeBuild
-.cxx
+.gradle/
+/build/
+/app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
 *.apk
 *.aab
+
+# Local configuration & secrets
+/local.properties
+/secrets.properties
+*.jks
+*.keystore
+*.key
+*.p12
+*.pem
+google-services.json
+.env
+.env.*
+*.log
+
+# IDE & OS
+/.idea/
+.DS_Store
+Thumbs.db
